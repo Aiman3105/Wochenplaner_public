@@ -1,90 +1,93 @@
 import streamlit as st
-from datetime import datetime, timedelta
+from datetime import datetime
 import json
 import os
 
-# ---------- Einstellungen ----------
+# ---- Einstellungen ----
 st.set_page_config(page_title="📆 Wochenplaner", layout="wide")
-st.title("📆 Wochenkalender mit Zeitbereichen, KW-Auswahl & Speicherung")
+st.title("📆 Wochenkalender mit mobiler & Desktop-Ansicht")
 
 tage = ["Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag", "Samstag", "Sonntag"]
-zeit_start = 6
-zeit_ende = 23
 json_file = "wochenplaene.json"
 
-# ---------- JSON laden & speichern ----------
+# ---- JSON laden & speichern ----
 def load_wochenplaene():
     if os.path.exists(json_file):
         with open(json_file, "r", encoding="utf-8") as f:
             raw = json.load(f)
         result = {}
-        for key, wochenplan in raw.items():
+        for key, plan in raw.items():
             result[key] = {}
-            for tag, aufgaben in wochenplan.items():
-                result[key][tag] = [(datetime.strptime(von, "%H:%M").time(),
-                                     datetime.strptime(bis, "%H:%M").time(),
-                                     text)
-                                     for von, bis, text in aufgaben]
+            for tag, aufgaben in plan.items():
+                result[key][tag] = [(datetime.strptime(v, "%H:%M").time(),
+                                     datetime.strptime(b, "%H:%M").time(),
+                                     t) for v, b, t in aufgaben]
         return result
-    else:
-        return {}
+    return {}
 
 def save_wochenplaene(data):
     raw = {}
-    for key, wochenplan in data.items():
+    for key, plan in data.items():
         raw[key] = {}
-        for tag, aufgaben in wochenplan.items():
-            raw[key][tag] = [[von.strftime("%H:%M"), bis.strftime("%H:%M"), text] for von, bis, text in aufgaben]
+        for tag, aufgaben in plan.items():
+            raw[key][tag] = [[v.strftime("%H:%M"), b.strftime("%H:%M"), t] for v, b, t in aufgaben]
     with open(json_file, "w", encoding="utf-8") as f:
         json.dump(raw, f, ensure_ascii=False, indent=2)
 
-# ---------- Session State ----------
+# ---- Session init ----
 if "wochenplaene" not in st.session_state:
     st.session_state.wochenplaene = load_wochenplaene()
 
-# ---------- Aktuelle KW & Jahr ----------
+# ---- Kalenderwoche + Jahr Auswahl ----
 heute = datetime.today()
-kw_aktuell = heute.isocalendar().week
 jahr_aktuell = heute.year
+kw_aktuell = heute.isocalendar().week
 
-# ---------- Auswahl: Kalenderwoche & Jahr ----------
-col_w1, col_w2 = st.columns(2)
-with col_w1:
-    jahr = st.selectbox("Jahr", list(range(jahr_aktuell - 2, jahr_aktuell + 3)), index=2)
-with col_w2:
-    kw = st.selectbox("Kalenderwoche", list(range(1, 54)), index=kw_aktuell - 1)
-
-wochen_key = f"{jahr}-KW{kw:02d}"
-
-# ---------- Daten vorbereiten ----------
-if wochen_key not in st.session_state.wochenplaene:
-    st.session_state.wochenplaene[wochen_key] = {tag: [] for tag in tage}
-
-wochenplan = st.session_state.wochenplaene[wochen_key]
-
-# ---------- Neue Aufgabe eintragen ----------
-st.subheader("➕ Neue Aufgabe eintragen")
-col1, col2, col3, col4 = st.columns(4)
-
+col1, col2, col3 = st.columns([2, 2, 3])
 with col1:
-    wochentag = st.selectbox("Wochentag", tage)
+    jahr = st.selectbox("📅 Jahr", list(range(jahr_aktuell - 2, jahr_aktuell + 3)), index=2)
 with col2:
-    zeit_von = st.time_input("Von", value=datetime.strptime("08:00", "%H:%M").time(), key=f"von_{wochen_key}")
+    kw = st.selectbox("📆 Kalenderwoche", list(range(1, 54)), index=kw_aktuell - 1)
 with col3:
-    zeit_bis = st.time_input("Bis", value=datetime.strptime("09:00", "%H:%M").time(), key=f"bis_{wochen_key}")
-with col4:
-    text = st.text_input("Aufgabe", key=f"text_{wochen_key}")
+    ansicht = st.selectbox("🖥️ Ansicht", ["📱 iPhone", "💻 Desktop"])
 
-if st.button("📌 Hinzufügen", key=f"add_{wochen_key}"):
-    if zeit_von < zeit_bis and text.strip():
-        wochenplan[wochentag].append((zeit_von, zeit_bis, text.strip()))
+key = f"{jahr}-KW{kw:02d}"
+
+# ---- Wochenstruktur vorbereiten ----
+if key not in st.session_state.wochenplaene:
+    st.session_state.wochenplaene[key] = {tag: [] for tag in tage}
+
+wochenplan = st.session_state.wochenplaene[key]
+
+# ---- Neue Aufgabe eintragen ----
+st.header("➕ Neue Aufgabe eintragen")
+wochentag = st.selectbox("🗓️ Wochentag", tage)
+von = st.time_input("Von", value=datetime.strptime("08:00", "%H:%M").time(), key=f"von_{key}")
+bis = st.time_input("Bis", value=datetime.strptime("09:00", "%H:%M").time(), key=f"bis_{key}")
+text = st.text_input("✏️ Aufgabe", key=f"text_{key}")
+
+if st.button("✔️ Hinzufügen", key=f"add_{key}"):
+    if von < bis and text.strip():
+        wochenplan[wochentag].append((von, bis, text.strip()))
         save_wochenplaene(st.session_state.wochenplaene)
+        st.success("Aufgabe hinzugefügt!")
         st.rerun()
     else:
-        st.warning("Bitte gültigen Zeitraum und Aufgabe angeben.")
+        st.warning("Bitte gültigen Zeitraum und eine Aufgabe eingeben.")
 
-# ---------- Kalenderansicht ----------
-def generate_schedule_table():
+# ---- Darstellung: iPhone-Ansicht ----
+def mobile_ansicht():
+    st.header(f"📋 Wochenübersicht – KW {kw} / {jahr}")
+    for tag in tage:
+        aufgaben = sorted(wochenplan[tag], key=lambda x: x[0])
+        with st.expander(f"📅 {tag} – {len(aufgaben)} Aufgabe(n)"):
+            if not aufgaben:
+                st.info("Keine Aufgaben eingetragen.")
+            for v, b, t in aufgaben:
+                st.markdown(f"🕒 **{v.strftime('%H:%M')} – {b.strftime('%H:%M')}**  \n📌 {t}")
+
+# ---- Darstellung: Desktop-Tabelle ----
+def desktop_ansicht():
     html = """
     <style>
         .kalender { border-collapse: collapse; width: 100%; table-layout: fixed; }
@@ -98,10 +101,9 @@ def generate_schedule_table():
             <th>Zeit</th>
             """ + "".join(f"<th>{tag}</th>" for tag in tage) + "</tr>"
 
-    for hour in range(zeit_start, zeit_ende):
+    for hour in range(6, 23):
         zeit_label = f"{hour:02d}:00 - {hour+1:02d}:00"
         html += f"<tr><td class='zeitfeld'>{zeit_label}</td>"
-
         for tag in tage:
             zelle = ""
             for von, bis, text in wochenplan[tag]:
@@ -109,29 +111,27 @@ def generate_schedule_table():
                     zelle += f"<div class='taskbox'>{von.strftime('%H:%M')}–{bis.strftime('%H:%M')}<br>{text}</div>"
             html += f"<td>{zelle}</td>"
         html += "</tr>"
-
     html += "</table>"
-    return html
+    st.markdown(f"### 🖥️ Kalenderansicht – KW {kw} / {jahr}")
+    st.markdown(html, unsafe_allow_html=True)
 
-# ---------- Anzeige Wochenplan ----------
-st.subheader(f"📋 Kalenderansicht – KW {kw}, {jahr}")
-st.markdown(generate_schedule_table(), unsafe_allow_html=True)
+# ---- Ansicht anzeigen ----
+if ansicht == "📱 iPhone":
+    mobile_ansicht()
+else:
+    desktop_ansicht()
 
-# ---------- Aufgaben löschen ----------
-st.subheader(f"🗑️ Aufgaben löschen – KW {kw} / {jahr}")
+# ---- Aufgaben löschen ----
+st.header("🗑️ Aufgaben löschen")
 for tag in tage:
-    for idx, (von, bis, text) in enumerate(wochenplan[tag]):
-        col1, col2, col3, col4, col5 = st.columns([2, 2, 3, 2, 1])
-        with col1:
-            st.markdown(f"**{tag}**")
-        with col2:
-            st.markdown(f"{von.strftime('%H:%M')} – {bis.strftime('%H:%M')}")
-        with col3:
-            st.markdown(f"*{text}*")
-        with col4:
-            st.markdown(f"`KW {kw} / {jahr}`")
-        with col5:
-            if st.button("❌", key=f"remove_{tag}_{idx}_{wochen_key}"):
-                wochenplan[tag].pop(idx)
-                save_wochenplaene(st.session_state.wochenplaene)
-                st.rerun()
+    if wochenplan[tag]:
+        with st.expander(f"🧹 {tag} ({len(wochenplan[tag])} Aufgabe(n))"):
+            for idx, (v, b, t) in enumerate(wochenplan[tag]):
+                col1, col2 = st.columns([4, 1])
+                with col1:
+                    st.markdown(f"**{v.strftime('%H:%M')} – {b.strftime('%H:%M')}**  \n{t}  \n`KW {kw} / {jahr}`")
+                with col2:
+                    if st.button("❌", key=f"del_{tag}_{idx}_{key}"):
+                        wochenplan[tag].pop(idx)
+                        save_wochenplaene(st.session_state.wochenplaene)
+                        st.rerun()
